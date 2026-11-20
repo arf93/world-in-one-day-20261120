@@ -1,33 +1,52 @@
-// main.ts — entrypoint for news-image-20261120.
-// Copies the pre-rendered entry.png (in this repository) to the output
-// directory. Node 22 standard library only; no network; deterministic:
-// the same bytes are written on every run.
+// Entry point for the news-image-20261120 submission.
+//
+// The image is rendered ahead of time by render.py and stored in this
+// repository as entry.png. This program only moves those exact bytes to
+// the output directory, so the entry is byte-identical on every run.
+// Node 22 standard library only; nothing is fetched from the network.
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 
-// PNG signature: 89 50 4E 47 0D 0A 1A 0A
-const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+// The first eight bytes of every PNG file.
+const PNG_HEADER = Buffer.from([
+  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+]);
 
-const here = dirname(fileURLToPath(import.meta.url));
-const sourcePath = join(here, "entry.png");
-
-const outDir = process.env.MAKEFUN_OUTPUT_DIR || "/output";
-const outPath = join(outDir, "entry.png");
-
-const bytes = readFileSync(sourcePath);
-
-if (bytes.length < PNG_MAGIC.length || !bytes.subarray(0, 8).equals(PNG_MAGIC)) {
-  throw new Error("entry.png is not a PNG: bad magic bytes");
+function fail(message) {
+  throw new Error(`entry.png check failed: ${message}`);
 }
 
-mkdirSync(outDir, { recursive: true });
-writeFileSync(outPath, bytes);
+function main() {
+  const root = path.dirname(fileURLToPath(import.meta.url));
+  const source = path.join(root, "entry.png");
 
-const written = readFileSync(outPath);
-if (written.length !== bytes.length || !written.equals(bytes)) {
-  throw new Error("output is not byte-identical to the source image");
+  if (!fs.existsSync(source)) {
+    fail(`missing source file ${source}`);
+  }
+
+  const image = fs.readFileSync(source);
+  if (image.length < PNG_HEADER.length) {
+    fail("file is shorter than a PNG header");
+  }
+  if (!image.subarray(0, PNG_HEADER.length).equals(PNG_HEADER)) {
+    fail("first bytes are not the PNG signature");
+  }
+
+  const destinationDir =
+    process.env.MAKEFUN_OUTPUT_DIR || "/output";
+  const destination = path.join(destinationDir, "entry.png");
+
+  fs.mkdirSync(destinationDir, { recursive: true });
+  fs.writeFileSync(destination, image);
+
+  const copied = fs.readFileSync(destination);
+  if (copied.length !== image.length || !copied.equals(image)) {
+    fail("the copied file differs from the source");
+  }
+
+  console.log(`copied ${destination} (${copied.length} bytes)`);
 }
 
-console.log(`wrote ${outPath} (${written.length} bytes)`);
+main();
